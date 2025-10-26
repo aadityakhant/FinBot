@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FinBot: AI assisted Financial ChatBot</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        'primary-green': '#10B981', /* Emerald Green */
+                        'secondary-gray': '#F3F4F6',
+                        'accent-blue': '#2563EB',
+                        'danger-red': '#EF4444',
+                        'indigo-dark': '#4F46E5', // For Alice (Source)
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Custom scrollbar for better look */
+        #chat-window::-webkit-scrollbar { width: 8px; }
+        #chat-window::-webkit-scrollbar-thumb { background-color: #34D399; border-radius: 4px; }
+        #chat-window::-webkit-scrollbar-track { background-color: #E5E7EB; }
+
+        .message-fade-in { animation: fadeIn 0.3s ease-out; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen font-sans p-4">
+
+    <!-- Main Chat Container (Wider for sidebar) -->
+    <div id="app" class="w-full max-w-4xl bg-white shadow-2xl rounded-xl flex flex-col h-[85vh] min-h-[600px] overflow-hidden">
+
+        <!-- Header (Title and Reset button) -->
+        <header class="bg-primary-green text-white p-4 flex items-center justify-between rounded-t-xl shadow-md">
+             <h1 class="text-xl font-bold flex items-center">
+                <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c1.657 0 3-4.477 3-10S13.657 3 12 3 9 7.477 9 13s1.343 9 3 9zM12 8c0-5.523 4.477-10 10-10"></path></svg>
+                FinBot: AI assisted Financial ChatBot
+            </h1>
+            <button onclick="resetBalance()" class="text-xs text-white/80 border border-white/50 rounded-full px-3 py-1 hover:bg-white/10 transition duration-150">
+                Reset Balances
+            </button>
+        </header>
+        
+        <!-- MAIN CONTENT AREA (Flex row: Chat/Input + Sidebar) -->
+        <div class="flex flex-grow overflow-hidden">
+
+            <!-- Left Column: Chat Window and Input (3/4 width on MD+) -->
+            <div class="flex flex-col w-full md:w-3/4 h-full"> 
+                <!-- Chat Window -->
+                <div id="chat-window" class="flex-grow p-4 space-y-4 overflow-y-auto">
+                    <!-- Initial Bot Message -->
+                    <div class="flex justify-start message-fade-in">
+                        <div class="bg-secondary-gray text-gray-800 p-3 rounded-xl rounded-tl-none max-w-[85%] shadow-sm">
+                            Hi, What would you like FinBot to do?
+                        </div>
+                    </div>
+                    <!-- Messages will be injected here -->
+                </div>
+
+                <!-- Input Area & Loading Indicator -->
+                <div class="p-4 border-t border-gray-200">
+                    <div id="loading-indicator" class="text-sm text-accent-blue mb-2 hidden">
+                        FinBot is thinking...
+                    </div>
+                    <div class="flex space-x-3">
+                        <input type="text" id="user-input" placeholder="Make a transaction (e.g., 'send 50 to David') or 'add Sarah as a friend'..."
+                            class="flex-grow p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-accent-blue transition duration-150"
+                            onkeydown="if(event.key === 'Enter') sendMessage()">
+                        <button id="send-button" onclick="sendMessage()"
+                                class="bg-accent-blue text-white p-3 rounded-lg shadow-lg hover:bg-blue-700 transition duration-150 active:scale-95 disabled:opacity-50"
+                                disabled>
+                            Send
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column: Balance Sidebar (1/4 width on MD+ / Hidden on Mobile) -->
+            <div id="balance-sidebar" class="hidden md:block md:w-1/4 bg-gray-50 p-4 border-l border-gray-200 overflow-y-auto">
+                <p class="text-xs mb-3 text-gray-500 font-semibold uppercase tracking-wider border-b pb-2">Account Balances</p>
+                <div id="balance-card" class="grid grid-cols-1 gap-2">
+                    <!-- Balances will be injected here by JavaScript -->
+                </div>
+                <p class="text-xs mt-3 text-gray-400">Alice is the primary sender (indigo border).</p>
+            </div>
+            
+        </div>
+    </div>
+    
+    <!-- Password Modal Overlay -->
+    <div id="password-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50 p-4">
+        <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-sm">
+            <h2 class="text-xl font-bold mb-4 text-indigo-700">Transaction Authorization Required</h2>
+            <p class="text-gray-600 mb-6">Please enter your transaction password to confirm the transfer. (Demo Password: **1234**)</p>
+            <input type="password" id="password-input" placeholder="Enter password (e.g., 1234)"
+                   class="w-full p-3 border-2 border-indigo-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 mb-4"
+                   onkeydown="if(event.key === 'Enter') attemptVerification()">
+            <button onclick="attemptVerification()" id="verify-button"
+                    class="w-full bg-indigo-500 text-white p-3 rounded-lg font-semibold hover:bg-indigo-600 transition duration-150 active:scale-[0.98]">
+                Authorize Transaction
+            </button>
+            <p id="password-error" class="text-sm text-danger-red mt-2 hidden text-center"></p>
+        </div>
+    </div>
+
+    <script type="module">
+        // --- Global Configuration & State ---
+        const apiKey = "AIzaSyCvPza4drk6was7aKmLt8lYEBL1QP8D6hA"; // Leave as-is for Canvas to provide the key
+        
+        const TRANSACTION_LIMIT = 500.00; // Set maximum transaction limit to $500.00
+        const TRANSACTION_PASSWORD = '1234'; // The hardcoded demo password
+        const CHAT_USER = "Alice"; // The primary user/source account
+        // Updated RECIPIENT_NAMES to include 'Fiona'
+        const RECIPIENT_NAMES = ['Bob', 'Charlie', 'David', 'Eve', 'Fiona']; // These are the ONLY valid internal transfer targets
+
+        // Map is now only used for the source account (Alice/Deposit).
+        const RECIPIENT_TYPE_MAP = {
+            'Alice': 'Individual',
+        };
+        
+        // Initial state for six users (Balances tracked and displayed)
+        let allBalances = {};
+        
+        // New: Individuals added via chat (Balances NOT tracked/displayed)
+        let externalFriends = {}; 
+        
+        // Transaction History
+        let transactionHistory = []; 
+        
+        // Temporary storage for transaction data while password is being verified
+        let pendingTransaction = null; 
+
+        // DOM Elements
+        const chatWindow = document.getElementById('chat-window');
+        const userInput = document.getElementById('user-input');
+        const sendButton = document.getElementById('send-button');
+        const loadingIndicator = document.getElementById('loading-indicator');
+        const balanceCard = document.getElementById('balance-card'); 
+        const passwordModal = document.getElementById('password-modal');
+        const passwordInput = document.getElementById('password-input');
+        const passwordError = document.getElementById('password-error');
+        
+        // --- Utility Functions ---
+
+        const formatCurrency = (amount) => {
+            // Ensure the amount is treated as a number and handle potential floating point issues slightly
+            const cleanedAmount = parseFloat(Number(amount).toFixed(2));
+            return new Intl.NumberFormat('en-US', {
+                style: 'currency',
+                currency: 'USD'
+            }).format(cleanedAmount);
+        };
+
+        const getPersonColor = (name) => {
+            if (name === CHAT_USER) return 'bg-indigo-600'; // Alice (Source)
+            switch(name) {
+                case 'Bob': return 'bg-primary-green';
+                case 'Charlie': return 'bg-yellow-600';
+                case 'David': return 'bg-red-600';
+                case 'Eve': return 'bg-purple-600';
+                case 'Fiona': return 'bg-teal-600';
+                default: return 'bg-gray-600';
+            }
+        };
+        
+        /**
+         * Reads the integer value from Bob's split dropdown (0-5).
+         * @returns {number} The split amount (Y).
+         */
+        const getBobSplitAmount = () => {
+            const dropdown = document.getElementById('bob-dropdown');
+            // Read the selected value (which is a string) and parse it as a number. Default to 0.
+            return dropdown ? parseFloat(dropdown.value) || 0 : 0;
+        };
+
+
+        const updateBalanceDisplay = () => {
+            // Only iterate over allBalances, ignoring externalFriends
+            balanceCard.innerHTML = Object.entries(allBalances).map(([name, balance]) => {
+                const color = getPersonColor(name);
+                const isSource = name === CHAT_USER ? 'border-2 border-white' : '';
+                
+                let content;
+                if (name === 'Bob') {
+                    // Specific content for Bob with dropdown
+                    // Ensure the dropdown preserves its selection if updateBalanceDisplay is called
+                    const currentValue = getBobSplitAmount();
+                    const options = Array.from({ length: 6 }, (_, i) => 
+                        `<option value="${i}" ${i === currentValue ? 'selected' : ''}>$${i}.00</option>`
+                    ).join('');
+
+                    content = `
+                        <p class="font-semibold text-white/80 text-xs mb-1">${name} (Split to Eve)</p>
+                        <div class="flex items-center justify-between w-full px-1">
+                            <p class="font-bold text-lg leading-tight">${formatCurrency(balance)}</p>
+                            <select id="bob-dropdown" 
+                                    class="text-gray-800 bg-white p-1 rounded-md text-sm cursor-pointer border border-gray-300 focus:outline-none focus:ring-2 focus:ring-green-400 shadow-inner"
+                                    onchange="updateBalanceDisplay()"> <!-- Re-render to persist selection visual -->
+                                ${options}
+                            </select>
+                        </div>
+                    `;
+                } else {
+                    // Default content for all others
+                    content = `
+                        <p class="font-semibold text-white/80 text-xs">${name} ${isSource ? '(Source)' : ''}</p>
+                        <p class="font-bold text-lg leading-tight">${formatCurrency(balance)}</p>
+                    `;
+                }
+
+                return `
+                    <div class="${color} ${isSource} p-2 rounded-lg text-white shadow-md flex flex-col items-center justify-center text-sm transform transition duration-300 hover:scale-[1.02]">
+                        ${content}
+                    </div>
+                `;
+            }).join('');
+        };
+        
+        /**
+         * Generates and returns a formatted HTML string of the last 5 transactions.
+         */
+        const renderHistoryMessage = () => { 
+            const transactionsToShow = transactionHistory.slice(0, 5);
+
+            if (transactionsToShow.length === 0) {
+                return 'There are **no transactions** recorded yet.';
+            }
+
+            let htmlContent = `
+                <div class="p-3 border border-gray-300 bg-white rounded-xl text-sm space-y-2">
+                    <p class="font-bold text-primary-green border-b border-gray-200 pb-1">Recent Transactions (Last ${transactionsToShow.length})</p>
+            `;
+
+            transactionsToShow.forEach(tx => {
+                const formattedAmount = formatCurrency(tx.amount);
+                const isDeposit = tx.type === 'Deposit';
+                const isTransfer = tx.type === 'Transfer Out';
+                
+                const sign = isDeposit ? '+' : '-';
+                const color = isDeposit ? 'text-green-600' : 'text-red-600';
+                
+                let primaryDisplay;
+                if (isTransfer) {
+                    // Keep detailed info in history for tracking purposes
+                    primaryDisplay = `Transfer to ${tx.recipient || 'Unknown'}`;
+                } else if (isDeposit) {
+                    primaryDisplay = `Deposit to Alice`;
+                } else {
+                    primaryDisplay = `Alice Payment: ${tx.description}`;
+                }
+
+                htmlContent += `
+                    <div class="flex justify-between items-center pt-1">
+                        <div class="text-gray-700 truncate">${primaryDisplay}</div>
+                        <div class="font-mono font-bold ${color} whitespace-nowrap">${sign}${formattedAmount}</div>
+                    </div>
+                    <div class="flex justify-end text-xs text-gray-400 -mt-1 mb-1">
+                        ${tx.time} on ${tx.date}
+                    </div>
+                `;
+            });
+            
+            htmlContent += `</div>`;
+            return htmlContent;
+        };
+        
+        /**
+         * Sets all balances and transaction history to initial demo values.
+         */
+        const setInitialBalances = () => {
+             allBalances = {
+                'Alice': 2000.00, // Alice's starting balance
+                'Bob': 0.00,
+                'Charlie': 0.00,
+                'David': 0.00,
+                'Eve': 0.00,
+                'Fiona': 0.00
+            };
+            externalFriends = {}; // Reset external friends too
+            transactionHistory = []; // Clear history on reset
+        }
+
+
+        const resetBalance = () => {
+            setInitialBalances();
+            updateBalanceDisplay();
+            // This message is retained to give feedback when the user clicks the "Reset Balances" button.
+            appendMessage('bot', `All balances and contacts have been **reset** to their demo starting values. Alice: ${formatCurrency(allBalances['Alice'])}.`, 'special');
+        };
+
+        const appendMessage = (sender, text, type = 'general') => {
+            const messageDiv = document.createElement('div');
+            messageDiv.classList.add('flex', 'message-fade-in');
+
+            const isUser = sender === 'user';
+            // Determine styling based on sender and message type
+            let bgColor = isUser ? 'bg-accent-blue' : 'bg-secondary-gray';
+            let textColor = isUser ? 'text-white' : 'text-gray-800';
+
+            if (type === 'special') {
+                 // For financial success/error messages
+                bgColor = 'bg-primary-green';
+                textColor = 'text-white';
+            } else if (type === 'error') {
+                bgColor = 'bg-danger-red';
+                textColor = 'text-white';
+            } else if (type === 'warning') { // New color for warnings/rules met
+                bgColor = 'bg-yellow-500';
+                textColor = 'text-gray-800';
+            }
+
+            const alignment = isUser ? 'justify-end' : 'justify-start';
+            const roundedClass = isUser ? 'rounded-xl rounded-br-none' : 'rounded-xl rounded-tl-none';
+
+            messageDiv.classList.add(alignment);
+            
+            // NOTE: Using innerHTML for raw text and generated HTML structure
+            messageDiv.innerHTML = `
+                <div class="${bgColor} ${textColor} p-3 ${roundedClass} max-w-[85%] shadow-md">
+                    ${text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')}
+                </div>
+            `;
+            
+            chatWindow.appendChild(messageDiv);
+            chatWindow.scrollTop = chatWindow.scrollHeight;
+        };
+
+        function showLoading() {
+            loadingIndicator.classList.remove('hidden');
+            sendButton.disabled = true;
+            userInput.disabled = true;
+        }
+
+        function hideLoading() {
+            loadingIndicator.classList.add('hidden');
+            sendButton.disabled = userInput.value.trim() === '';
+            userInput.disabled = false;
+            userInput.focus();
+        }
+
+        /**
+         * Retries the fetch request with exponential backoff.
+         */
+        async function fetchWithRetry(url, options, retries = 3) {
+            for (let i = 0; i < retries; i++) {
+                try {
+                    const response = await fetch(url, options);
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response;
+                } catch (error) {
+                    if (i === retries - 1) throw error;
+                    const delay = Math.pow(2, i) * 1000;
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                }
+            }
+        }
+
+        async function callGeminiApi(payload, useStructured = false) {
+            const modelName = 'gemini-2.5-flash-preview-09-2025';
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+
+            const options = {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            };
+
+            const response = await fetchWithRetry(apiUrl, options);
+            const result = await response.json();
+
+            if (result.candidates && result.candidates.length > 0 && result.candidates[0].content.parts.length > 0) {
+                const text = result.candidates[0].content.parts[0].text;
+                if (useStructured) {
+                    try {
+                        return JSON.parse(text);
+                    } catch (e) {
+                        console.error("Failed to parse JSON response:", text);
+                        return null;
+                    }
+                }
+                return text;
+            }
+            throw new Error("Could not get a valid response from the API.");
+        }
+        
+        // --- Password Modal and Verification Logic ---
+        
+        function showPasswordModal(data) {
+            pendingTransaction = data;
+            passwordModal.classList.remove('hidden');
+            passwordModal.classList.add('flex');
+            passwordInput.value = '';
+            passwordError.classList.add('hidden');
+            passwordInput.focus();
+        }
+        
+        function hidePasswordModal() {
+            passwordModal.classList.add('hidden');
+            passwordModal.classList.remove('flex');
+            // The state is reset in attemptVerification's finally block to ensure it's used before being cleared.
+        }
+
+        window.attemptVerification = async () => {
+            const enteredPassword = passwordInput.value.trim();
+            passwordError.classList.add('hidden');
+
+            if (enteredPassword === TRANSACTION_PASSWORD) {
+                hidePasswordModal();
+                showLoading(); // Re-show loading for execution time
+                try {
+                    // Check if pendingTransaction is still valid before executing
+                    if (pendingTransaction) {
+                        await executeTransaction(pendingTransaction);
+                    } else {
+                         appendMessage('bot', `**Fatal Error:** Transaction data was lost during authorization. Try again.`, 'error');
+                    }
+                } catch (error) {
+                    // Execution error
+                    console.error("Error executing transaction:", error);
+                    appendMessage('bot', `**Fatal Error:** Could not finalize the transaction due to an execution issue. Details: *${error.message}*. Check console for more details.`, 'error');
+                } finally {
+                    // CRITICAL FIX: Ensure state is reset and loading is hidden regardless of success/error
+                    pendingTransaction = null; 
+                    hideLoading();
+                }
+            } else {
+                passwordError.textContent = "Incorrect password. Transaction aborted.";
+                passwordError.classList.remove('hidden');
+                
+                // Clear the input and hide the modal after a short delay on failure
+                setTimeout(() => {
+                    hidePasswordModal();
+                    hideLoading();
+                    appendMessage('bot', `**Transaction Canceled.** Authorization failed.`, 'error');
+                    pendingTransaction = null; // CRITICAL FIX: Reset on password failure as well
+                }, 1500);
+            }
+        };
+
+        // --- Simulated KYC/KYB Lookup Function ---
+
+        /**
+         * Simulates a KYC/KYB database lookup using the Gemini API to classify the recipient.
+         * @param {string} entityName - The name of the entity to classify.
+         * @returns {Promise<string>} 'Individual' or 'Corporation'.
+         */
+        async function classifyRecipientType(entityName) {
+            const systemPrompt = `You are a Know Your Customer (KYC) / Know Your Business (KYB) data service. For the entity name provided, classify the entity type as either 'Individual' or 'Corporation'.
+            For this demo:
+            - Names like 'Bob', 'Charlie', 'David', 'Eve', 'Fiona', or common names (e.g., John Smith, Maria) should be classified as 'Individual'.
+            - Entity names including words like 'Corp', 'LLC', 'Holdings', 'Bank', 'Inc', or made-up corporate names (e.g., Acme Corp) should be classified as 'Corporation'.
+            Respond ONLY with a JSON object conforming to the provided schema.`;
+
+            const payload = {
+                contents: [{ parts: [{ text: `Classify the entity type for: ${entityName}` }] }],
+                systemInstruction: { parts: [{ text: systemPrompt }] },
+                generationConfig: {
+                    responseMimeType: "application/json",
+                    responseSchema: {
+                        type: "OBJECT",
+                        properties: {
+                            "recipientType": { "type": "STRING", "description": "The classified entity type: 'Individual' or 'Corporation'." },
+                        },
+                        required: ["recipientType"]
+                    }
+                }
+            };
+
+            try {
+                const result = await callGeminiApi(payload, true);
+                // Trim to ensure a clean 'Individual' or 'Corporation'
+                return result?.recipientType.trim().replace(/\.$/, '') || 'Individual'; 
+            } catch (e) {
+                 console.error("KYC/KYB Lookup API failed:", e);
+                 return 'Individual (API Fallback)';
+            }
+        }
+
+
+        // --- Transaction Execution Logic (Called ONLY after successful verification) ---
+
+        async function executeTransaction(transactionData) {
+            // Destructure recipientType
+            const { intent, amount, recipient, recipientType } = transactionData;
+            const safeAmount = Number(amount); // Ensure amount is a number
+            const description = transactionData.description || (intent === 'deposit' ? 'Deposit' : 'Payment'); 
+            const formattedAmount = formatCurrency(safeAmount);
+            const senderBalance = Number(allBalances[CHAT_USER]); // Ensure balance is a number
+            
+            // Check if recipient is one of the internal tracked accounts or an external friend
+            const isInternalTracked = allBalances.hasOwnProperty(recipient);
+            const isExternalFriend = externalFriends.hasOwnProperty(recipient);
+
+            const now = new Date();
+            const transactionRecord = {
+                amount: safeAmount,
+                description: description,
+                date: now.toLocaleDateString(),
+                time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            };
+            
+            let successMessage = '';
+            let balanceUpdateNeeded = false;
+
+            if (intent === 'deposit') {
+                // Deposit (Credit) to Alice (Individual)
+                allBalances[CHAT_USER] = senderBalance + safeAmount; // Safe arithmetic
+                transactionHistory.unshift({...transactionRecord, type: 'Deposit'});
+                
+                balanceUpdateNeeded = true;
+                successMessage = `**Deposit Complete!** ${formattedAmount} for **${description}** added to **${CHAT_USER}**'s account. New balance: **${formatCurrency(allBalances[CHAT_USER])}**.`;
+
+            } else if (intent === 'withdraw') {
+                
+                // 1. Check for insufficient funds (already checked in handleTransactionIntent, but safety check)
+                if (safeAmount > senderBalance) {
+                     appendMessage('bot', `**Transaction Failed.** Insufficient funds. **${CHAT_USER}**'s current balance (${formatCurrency(senderBalance)}) is too low.`, 'error');
+                     return;
+                }
+                
+                // --- DEBIT ALICE FOR ALL WITHDRAWALS ---
+                allBalances[CHAT_USER] = senderBalance - safeAmount; // DEBIT ALICE
+
+                // --- BOB SPLIT LOGIC (Internal Transfer Only) ---
+                if (recipient === 'Bob') {
+                    const splitAmountY = getBobSplitAmount();
+                    const originalAmountX = safeAmount;
+
+                    if (splitAmountY > originalAmountX) {
+                        // This should ideally be caught before authorization, but error out here if somehow missed.
+                        allBalances[CHAT_USER] = senderBalance; // Revert Alice's debit
+                        appendMessage('bot', `**Transaction Failed.** The split amount (${formatCurrency(splitAmountY)}) to Eve cannot exceed the total transfer amount (${formattedAmount}).`, 'error');
+                        return;
+                    }
+
+                    const bobAmount = originalAmountX - splitAmountY;
+                    const eveAmount = splitAmountY;
+                    
+                    // CREDIT Bob (X - Y) & Eve (Y)
+                    allBalances['Bob'] = Number(allBalances['Bob']) + bobAmount;
+                    allBalances['Eve'] = Number(allBalances['Eve']) + eveAmount;
+                    
+                    // Log Alice's debit to history
+                    transactionHistory.unshift({...transactionRecord, 
+                        type: 'Transfer Out', 
+                        recipient: `Bob (Individual, Split: ${formatCurrency(bobAmount)}) & Eve (Individual, Split: ${formatCurrency(eveAmount)})` // UPDATED TO INDIVIDUAL
+                    });
+
+                    balanceUpdateNeeded = true;
+                    // --- CHAT MESSAGE: HIDE SPLIT ---
+                    const summary = `**transferred** to **Bob** (Individual).`;
+                    successMessage = `**Transfer Complete!** ${formattedAmount} was ${summary} 
+                        Alice's new balance: **${formatCurrency(allBalances[CHAT_USER])}**.\n*The recipient's new balance has been updated.*`;
+                    
+                } else {
+                    // --- STANDARD TRANSFER LOGIC (Internal, Trusted External Friend, or Corporate External) ---
+                    
+                    let recipientDisplay;
+
+                    if (isInternalTracked) {
+                         // CREDIT RECIPIENT (Internal tracked user)
+                        allBalances[recipient] = Number(allBalances[recipient]) + safeAmount; 
+                        recipientDisplay = `${recipient} (${recipientType})`;
+                    } else if (isExternalFriend) {
+                        // TRUSTED FRIEND TRANSFER: Alice is debited. Friend's balance is NOT tracked/updated.
+                        recipientDisplay = `${recipient} (${recipientType})`; // Uses 'Individual (Trusted)'
+                    } else {
+                        // CORPORATE EXTERNAL TRANSFER: Alice is debited, no change to other tracked balances
+                        // NOTE: If this path is reached, it should only be a corporate transfer per handleTransactionIntent logic
+                        recipientDisplay = `External Entity: ${recipient} (${recipientType})`;
+                    }
+                    
+                    const summary = `**transferred** to **${recipientDisplay}**.`;
+                    transactionHistory.unshift({...transactionRecord, type: 'Transfer Out', recipient: recipientDisplay});
+
+                    balanceUpdateNeeded = true;
+                    successMessage = `**Transfer Complete!** ${formattedAmount} was ${summary} 
+                        Alice's new balance: **${formatCurrency(allBalances[CHAT_USER])}**.\n*Funds successfully sent to the destination account.*`;
+                }
+            }
+            
+            // Finalize display updates if a transaction was successful
+            if(balanceUpdateNeeded) {
+                updateBalanceDisplay();
+                appendMessage('bot', successMessage, 'special');
+            }
+        }
+
+        // --- Transaction Intent Parsing Logic (Shows Modal) ---
+
+        async function handleTransactionIntent(query) {
+            
+            const recipientList = RECIPIENT_NAMES.join(', ');
+            
+            const systemPrompt = `You are a transaction parser for a demo finance ledger. **${CHAT_USER}** is the primary source account.
+Analyze the user's request. Determine the financial intent, the numerical amount, and a brief description/memo.
+Intent must be one of three values: **"deposit"** (add funds to Alice), **"withdraw"** (for payments/transfers from Alice), or **"unknown"**.
+If the intent is 'withdraw', and a person/entity is mentioned, identify that as the **recipient**.
+If the recipient is one of the tracked demo users (${recipientList}), set is_internal_transfer to TRUE.
+Respond ONLY with a JSON object conforming to the provided schema.`;
+
+            const payload = {
+                contents: [{ parts: [{ text: query }] }],
+                systemInstruction: { parts: [{ text: systemPrompt }] },
+                generationConfig: {
+                    responseMimeType: "application/json",
+                    responseSchema: {
+                        type: "OBJECT",
+                        properties: {
+                            "intent": { "type": "STRING", "description": "The type of transaction: 'deposit', 'withdraw', or 'unknown'." },
+                            "amount": { "type": "NUMBER", "description": "The numerical amount of money involved, or 0 if not specified." },
+                            "description": { "type": "STRING", "description": "A brief description or memo for the transaction." },
+                            "recipient": { "type": "STRING", "description": "The name of the person or entity receiving the money, if mentioned." },
+                            "is_internal_transfer": { "type": "BOOLEAN", "description": "Set to TRUE if recipient is one of Bob, Charlie, David, Eve, or Fiona." }
+                        },
+                        required: ["intent", "amount"]
+                    }
+                }
+            };
+
+            const transactionData = await callGeminiApi(payload, true);
+            hideLoading(); // Hide initial parsing loading indicator
+
+            if (!transactionData || Number(transactionData.amount) <= 0) {
+                 // Parsing failed or amount was missing/zero. Fallback to general chat.
+                await handleGeneralChat(query);
+                return;
+            }
+
+            const amount = Number(transactionData.amount); // Ensure amount is number immediately after parsing
+            const { intent, recipient } = transactionData;
+            const formattedAmount = formatCurrency(amount);
+            const limitAmount = formatCurrency(TRANSACTION_LIMIT);
+            const senderBalance = allBalances[CHAT_USER];
+
+            // --- Transaction Limit Check ---
+            if (amount > TRANSACTION_LIMIT) {
+                appendMessage('bot', `**Transaction Failed.** The transaction amount of **${formattedAmount}** exceeds the maximum limit of **${limitAmount}**.`, 'error');
+                return;
+            }
+            
+            // --- Insufficient Funds Check for Withdrawals ---
+            if (intent === 'withdraw' && amount > senderBalance) {
+                 appendMessage('bot', `**Transaction Failed.** Insufficient funds. **${CHAT_USER}**'s current balance (${formatCurrency(senderBalance)}) is too low to complete the ${formattedAmount} transaction.`, 'error');
+                 return;
+            }
+
+            // --- Execution Logic: CHECK AUTHORIZATION & CLASSIFICATION ---
+            let isAuthorizedTransfer = false;
+            let recipientType;
+            const recipientName = recipient;
+
+            if (intent === 'deposit') {
+                isAuthorizedTransfer = true;
+                // Alice is always Individual for deposit classification
+                recipientType = RECIPIENT_TYPE_MAP[CHAT_USER] || 'Individual'; 
+            } else if (intent === 'withdraw' && recipientName) {
+                
+                // Check if recipient is a known internal tracked account or a manually added external friend
+                const isInternalTracked = allBalances.hasOwnProperty(recipientName);
+                const isExternalFriend = externalFriends.hasOwnProperty(recipientName);
+
+                if (isInternalTracked || isExternalFriend) { 
+                    isAuthorizedTransfer = true;
+                    
+                    showLoading(); // Show loading again for classification lookup
+                    recipientType = await classifyRecipientType(recipientName); 
+                    hideLoading();
+
+                    // If they were added as a friend, override classification for clarity in logging
+                    if (isExternalFriend) {
+                        recipientType = 'Individual (Trusted)';
+                    }
+
+                } else {
+                    // 2. UNKNOWN EXTERNAL TRANSFER LOGIC
+                    showLoading(); // Show loading while running classification for external entity
+                    
+                    // Step 2a: Classify the unknown external entity
+                    recipientType = await classifyRecipientType(recipientName);
+                    hideLoading();
+
+                    if (recipientType === 'Corporation' || recipientType.includes('Corporation')) {
+                        // RULE: Allow unknown external transfer to Corporation
+                        isAuthorizedTransfer = true;
+                        appendMessage('bot', `**Compliance Check:** **${recipientName}** classified as **${recipientType}**. External corporate transfer **approved** to proceed to authorization.`, 'warning');
+                    } else {
+                        // RULE: Block unknown external transfer to Individual
+                        isAuthorizedTransfer = false;
+                        appendMessage('bot', `**Transaction Blocked.** **${recipientName}** classified as **${recipientType}**. External transfers to unknown Individuals are **not permitted** by compliance rules. Please add them as a friend first.`, 'error');
+                        return; // Terminate flow
+                    }
+                }
+            }
+            
+            // If authorized, show modal
+            if (isAuthorizedTransfer) {
+                showPasswordModal({...transactionData, amount: amount, recipient: recipientName, recipientType: recipientType});
+            } else {
+                // Should only happen if intent was 'unknown' or 'withdraw' without recipient, fallback to chat
+                await handleGeneralChat(query);
+            }
+        }
+
+        // --- Friend/Contact Management Logic ---
+        
+        async function handleAddFriendIntent(query) {
+            // Regex to match "add [name] as a friend/recipient/contact"
+            const friendNameMatch = query.match(/\b(add|register)\s+([a-zA-Z\s]+?)\s+as\s+a\s+(friend|recipient|contact)\b/i);
+            
+            if (!friendNameMatch || !friendNameMatch[2]) {
+                // Should not happen if routed correctly, but fallback just in case
+                appendMessage('bot', `I didn't quite catch the name. Please tell me who you want to add, like 'add John Doe as a friend'.`);
+                return;
+            }
+            
+            const friendNameRaw = friendNameMatch[2].trim();
+            // Capitalize the first letter for display consistency
+            const friendName = friendNameRaw.charAt(0).toUpperCase() + friendNameRaw.slice(1);
+
+            if (!friendName || friendName.toLowerCase() === CHAT_USER.toLowerCase()) {
+                appendMessage('bot', `You can't add yourself to the contacts list.`);
+                return;
+            }
+
+            // Check if they are already a known internal recipient
+            if (allBalances.hasOwnProperty(friendName)) {
+                 appendMessage('bot', `**${friendName}** is already a visible internal recipient! No need to add them.`);
+                 return;
+            }
+            
+            // Check if they are already an added friend
+            if (externalFriends.hasOwnProperty(friendName)) {
+                 appendMessage('bot', `**${friendName}** is already in your trusted contacts list.`);
+                 return;
+            }
+
+            // Add to externalFriends list. Assume 'Individual' type.
+            externalFriends[friendName] = 'Individual';
+            
+            appendMessage('bot', `**Success!** **${friendName}** has been added as a trusted individual contact. You can now transfer funds to them.`);
+        }
+
+
+        // --- General Chat Logic ---
+
+        async function handleGeneralChat(query) {
+            
+            // 1. Check for history inquiry
+            if (/\b(history|transactions|past transactions|last 5|statement)\b/i.test(query)) {
+                const historyHtml = renderHistoryMessage();
+                appendMessage('bot', historyHtml);
+                return;
+            }
+            
+            // 2. Check for balance inquiry
+            if (/\b(balance|how much do i have|what is the balance|funds|money)\b/i.test(query)) {
+                const totalBalance = Object.values(allBalances).reduce((sum, balance) => sum + Number(balance), 0);
+                appendMessage('bot', `The **total** fund balance across all tracked accounts is **${formatCurrency(totalBalance)}**.\nAlice's source account balance is **${formatCurrency(allBalances[CHAT_USER])}**.`);
+                return;
+            }
+
+            // 3. General conversational prompt
+            // REMOVED the instruction to remind the user about the bot's core function.
+            const systemPrompt = "You are The FinBot, a helpful and engaging AI assistant. Your responses should be concise, friendly, and accurate. Answer the user's general question briefly. Keep responses short and conversational.";
+
+            const payload = {
+                contents: [{ parts: [{ text: query }] }],
+                tools: [{ "google_search": {} }],
+                systemInstruction: { parts: [{ text: systemPrompt }] }
+            };
+
+            const textResponse = await callGeminiApi(payload, false);
+            appendMessage('bot', textResponse);
+        }
+
+        // --- Main Controller ---
+
+        async function sendMessage() {
+            const query = userInput.value.trim();
+            if (!query) return;
+
+            // Display user message
+            appendMessage('user', query);
+            userInput.value = '';
+            sendButton.disabled = true;
+
+            showLoading(); // Show loading immediately for parsing
+
+            try {
+                // 1. Check for Friend Addition command
+                const isFriendAddition = /\b(add|register)\s+([a-zA-Z\s]+?)\s+as\s+a\s+(friend|recipient|contact)\b/i.test(query);
+
+                if (isFriendAddition) {
+                    await handleAddFriendIntent(query);
+                    hideLoading();
+                    return;
+                }
+                
+                // 2. Check for Transaction command
+                const isTransaction = /\b(deposit|withdraw|take out|put in|add|remove|send|transfer|paid|spent)\b/i.test(query);
+
+                if (isTransaction) {
+                    // This function now handles parsing, compliance, and modal showing
+                    await handleTransactionIntent(query); 
+                } else {
+                    // 3. General chat, execute immediately
+                    await handleGeneralChat(query);
+                    hideLoading();
+                }
+            } catch (error) {
+                console.error("API or processing error:", error);
+                // Use a generic user-friendly error message
+                appendMessage('bot', `**Error:** I ran into a system problem processing your request. Please try again.`, 'error');
+                hideLoading();
+            }
+        }
+
+        // Expose functions to the global scope
+        window.sendMessage = sendMessage;
+        window.resetBalance = resetBalance;
+        window.updateBalanceDisplay = updateBalanceDisplay; // Expose for onchange event
+        window.attemptVerification = attemptVerification; // Expose for modal button/enter key
+
+        // --- Initial Load ---
+        document.addEventListener('DOMContentLoaded', () => {
+            // Initialize balances and display:
+            // Call setInitialBalances instead of resetBalance to prevent the console message on load.
+            setInitialBalances(); 
+            updateBalanceDisplay();
+            
+            // Initialize input state
+            sendButton.disabled = userInput.value.trim() === '';
+            
+            // Re-enable button on input change
+            userInput.addEventListener('input', () => {
+                sendButton.disabled = userInput.value.trim() === '';
+            });
+        });
+
+    </script>
+</body>
+</html>
